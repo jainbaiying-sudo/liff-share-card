@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>轉分享保險名片</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    body { margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center; font-family: sans-serif; background: #f5f5f5; }
+    .box { width: 82%; max-width: 320px; background: #fff; border-radius: 12px; padding: 28px; text-align: center; box-shadow: 0 4px 18px rgba(0,0,0,.12); }
+    .text { font-weight: 700; color: #333; }
+    .error { display: none; margin-top: 14px; padding: 12px; color: #e63946; background: #fff0f0; border-radius: 8px; font-size: 13px; text-align: left; word-break: break-all; line-height: 1.5; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="text" id="status">開啟通訊錄中...</div>
+    <div class="error" id="error"></div>
+  </div>
+
+  <script>
+    const LIFF_ID = "2010511176-gGs323aj";
+    const GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwJ1KVu-IVeHm9yj5TSb-d_QH-1Yy7YWDqqPPHe8uYbEpD67o0qrtQipW4X7f0umwK_4g/exec";
+
+    const statusEl = document.getElementById("status");
+    const errorEl = document.getElementById("error");
+
+    function showError(title, detail) {
+      statusEl.innerText = title;
+      statusEl.style.color = "#e63946";
+      errorEl.style.display = "block";
+      errorEl.innerHTML = detail;
+    }
+
+    function loadShareCard() {
+      return new Promise((resolve, reject) => {
+        const callbackName = "receiveFlex_" + Date.now();
+
+        window[callbackName] = function(data) {
+          delete window[callbackName];
+          script.remove();
+
+          if (!data || !data.ok) {
+            reject("GAS 回傳資料失敗");
+            return;
+          }
+
+          resolve(data.flexMessage);
+        };
+
+        const script = document.createElement("script");
+        script.src = GAS_WEBAPP_URL + "?action=getShareCard&prefix=" + callbackName + "&v=" + Date.now();
+        script.onerror = () => reject("無法連線到 GAS Web App");
+        document.head.appendChild(script);
+
+        setTimeout(() => reject("讀取 GAS 名片資料逾時"), 15000);
+      });
+    }
+
+    async function main() {
+      try {
+        await liff.init({
+          liffId: LIFF_ID,
+          withLoginOnExternalBrowser: true
+        });
+
+        if (!liff.isLoggedIn()) {
+          if (!liff.isInClient()) {
+            liff.login({ redirectUri: window.location.href });
+          } else {
+            showError("LINE 尚未登入", "請關閉後重新從 LINE 內開啟。");
+          }
+          return;
+        }
+
+
+const flexMessage = await loadShareCard();
+
+statusEl.innerText = "正在開啟通訊錄...";
+
+const shareResult = await liff.shareTargetPicker([flexMessage]);
+
+if (!shareResult || shareResult.status !== "success") {
+  showError(
+    "發送被取消",
+    "您可能關閉了通訊錄，或沒有按下最後的傳送。"
+  );
+  return;
+}
+
+statusEl.innerText = "分享流程已完成！";
+statusEl.style.color = "#28a745";
+
+setTimeout(() => {
+  if (liff.isInClient()) liff.closeWindow();
+}, 1200);
+
+      } catch (err) {
+        showError("發生錯誤", String(err && err.message ? err.message : err));
+      }
+    }
+
+    main();
+  </script>
+</body>
+</html>
