@@ -19,8 +19,8 @@
   </div>
 
   <script>
-    const LIFF_ID = "2010594776-SarwviD8";
-    const GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycby_jhp_AyFrY2v-P1wD-vTwnnJsANoNrVyOa3cuBbwIoblJQnJ72fH59MSFmjRRPSiC/exec";
+    const LIFF_ID = "2010600380-72j8qsLY";
+    const GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbwrNOwIeX6Vreuzz6RZEHFx_zeYdIJ4V353VkNI0C1-RBwwP4G0fnSYCHJKQ1qEyGwIEw/exec";
 
     const statusEl = document.getElementById("status");
     const errorEl = document.getElementById("error");
