@@ -1,106 +1,442 @@
 <!DOCTYPE html>
-<html>
+<!-- Lucide icons: ISC License, Copyright (c) Lucide Contributors. -->
+<html lang="zh-Hant">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>轉分享保險名片</title>
-  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <meta name="referral-version" content="2026-09-29-simple-cached-share">
+  <title>轉分享LINE名片</title>
+  <script id="line-sdk" defer src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
-    body { margin: 0; height: 100vh; display: flex; align-items: center; justify-content: center; font-family: sans-serif; background: #f5f5f5; }
-    .box { width: 82%; max-width: 320px; background: #fff; border-radius: 12px; padding: 28px; text-align: center; box-shadow: 0 4px 18px rgba(0,0,0,.12); }
-    .text { font-weight: 700; color: #333; }
-    .error { display: none; margin-top: 14px; padding: 12px; color: #e63946; background: #fff0f0; border-radius: 8px; font-size: 13px; text-align: left; word-break: break-all; line-height: 1.5; }
+    * { box-sizing: border-box; }
+    [hidden] { display: none !important; }
+    body { margin: 0; min-height: 100vh; min-height: 100dvh; display: grid; place-items: center; padding: 20px; font-family: system-ui, "Microsoft JhengHei", "PingFang TC", sans-serif; background: #f5f6f6; color: #293633; letter-spacing: 0; }
+    .box { width: 100%; max-width: 360px; padding: 28px 24px; background: #fff; border: 1px solid #dce3e0; border-radius: 8px; text-align: center; box-shadow: 0 4px 18px #0000000a; }
+    h1 { margin: 0 0 24px; font-size: 20px; line-height: 1.5; }
+    .line { color: #06c755; }
+    #status { margin: 0; min-height: 48px; font-size: 16px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
+    #status.success { color: #187d42; }
+    #error, #cacheNotice { margin: 16px 0 0; font-size: 13px; line-height: 1.7; text-align: left; overflow-wrap: anywhere; white-space: pre-wrap; }
+    #error { padding: 12px; background: #fff1ef; color: #943c32; border-left: 3px solid #c05246; }
+    #cacheNotice { color: #707974; }
+    .actions { display: grid; gap: 10px; margin-top: 20px; }
+    button { display: flex; gap: 8px; align-items: center; justify-content: center; width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid #ccd8d2; border-radius: 6px; background: #fff; color: #33493f; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+    #share { background: #167949; border-color: #167949; color: #fff; }
+    button:disabled { opacity: .5; cursor: default; }
+    button:focus-visible { outline: 3px solid #729dc4; outline-offset: 3px; }
+    svg { width: 18px; height: 18px; flex: 0 0 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
   </style>
 </head>
 <body>
-  <div class="box">
-    <div class="text" id="status">開啟通訊錄中...</div>
-    <div class="error" id="error"></div>
-  </div>
-
+  <main class="box" aria-labelledby="title">
+    <h1 id="title">轉分享<span class="line">LINE</span>名片</h1>
+    <p id="status" role="status" aria-live="polite">正在開啟通訊錄…</p>
+    <p id="error" role="alert" hidden></p>
+    <p id="cacheNotice" hidden></p>
+    <div class="actions">
+      <button id="share" type="button" disabled hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98M15.41 6.51l-6.82 3.98"/></svg>
+        <span id="shareLabel">再次分享</span>
+      </button>
+      <button id="reload" type="button" hidden title="清除本機名片快取，重新讀取最新內容">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5"/></svg>
+        重新讀取名片
+      </button>
+      <button id="restart" type="button" hidden>重新開啟 LINE</button>
+      <button id="close" type="button" hidden>關閉頁面</button>
+    </div>
+  </main>
   <script>
-    const LIFF_ID = "2010556030-IjwVcpxO";
-    const GAS_WEBAPP_URL = "https://script.google.com/macros/s/AKfycbxyM0e--JCPrZ75SU3GtdrR9OjobqpvGb-6aEZeWpv1gmEhLH-X2ftIGxUExzeUONTmfg/exec";
+    'use strict';
+    // Keep each customer's LIFF ID and Google deployment URL paired.
+    const LIFF_ID = '2010556030-IjwVcpxO';
+    const GAS_WEBAPP_URL = 'https://script.google.com/macros/s/AKfycbxyM0e--JCPrZ75SU3GtdrR9OjobqpvGb-6aEZeWpv1gmEhLH-X2ftIGxUExzeUONTmfg/exec';
+    const LINE_TIMEOUT_MS = 30000;
+    const CARD_TOTAL_TIMEOUT_MS = 60000;
+    const CARD_RECOVERY_DELAY_MS = 15000;
+    const CARD_RETRY_DELAYS_MS = [2000, 5000];
+    const CARD_CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+    const CARD_CACHE_MAX_LENGTH = 200000;
+    const CARD_CACHE_KEY = 'insurance-public-card-v1:' + JSON.stringify([LIFF_ID, GAS_WEBAPP_URL]);
+    const $ = id => document.getElementById(id);
+    const state = { generation: 0, controller: null, message: null, savedAt: 0, fromCache: false, loading: false, lineLoading: false, lineReady: false, sharing: false, success: false, autoPending: true, pendingCard: null, notice: '', warning: '', dataError: '', lineError: '', stopped: false };
+    let sdkPromise, linePromise, lineSdk, loginStarted = false;
+    let callbackSequence = 0, expiryTimer, closeTimer;
 
-    const statusEl = document.getElementById("status");
-    const errorEl = document.getElementById("error");
-
-    function showError(title, detail) {
-      statusEl.innerText = title;
-      statusEl.style.color = "#e63946";
-      errorEl.style.display = "block";
-      errorEl.innerHTML = detail;
+    function loadError(code, message, retryable = false) {
+      return Object.assign(new Error(message), { code, retryable });
     }
-
-    function loadShareCard() {
-      return new Promise((resolve, reject) => {
-        const callbackName = "receiveFlex_" + Date.now();
-
-        window[callbackName] = function(data) {
-          delete window[callbackName];
-          script.remove();
-
-          if (!data || !data.ok) {
-            reject("GAS 回傳資料失敗");
-            return;
-          }
-
-          resolve(data.flexMessage);
-        };
-
-        const script = document.createElement("script");
-        script.src = GAS_WEBAPP_URL + "?action=getShareCard&prefix=" + callbackName + "&v=" + Date.now();
-        script.onerror = () => reject("無法連線到 GAS Web App");
-        document.head.appendChild(script);
-
-        setTimeout(() => reject("讀取 GAS 名片資料逾時"), 15000);
-      });
+    function errorText(error) {
+      return (error && error.code ? '[' + error.code + '] ' : '') + String(error && error.message || error);
     }
-
-    async function main() {
-      try {
-        await liff.init({
-          liffId: LIFF_ID,
-          withLoginOnExternalBrowser: true
-        });
-
-        if (!liff.isLoggedIn()) {
-          if (!liff.isInClient()) {
-            liff.login({ redirectUri: window.location.href });
-          } else {
-            showError("LINE 尚未登入", "請關閉後重新從 LINE 內開啟。");
-          }
-          return;
+    function cacheIsCurrent(savedAt) {
+      const age = Date.now() - savedAt;
+      return Number.isFinite(savedAt) && savedAt > 0 && age >= 0 && age < CARD_CACHE_MAX_AGE_MS;
+    }
+    function clearCardCache() {
+      try { localStorage.removeItem(CARD_CACHE_KEY); } catch {}
+    }
+    function validateMessage(message) {
+      if (!message || message.type !== 'flex' || typeof message.altText !== 'string' || !message.altText.trim() || message.altText.length > 1500 || !message.contents) throw loadError('CARD_DATA', '名片資料格式不正確，請確認 Google 部署與名片內容。');
+      const bubbles = message.contents.type === 'bubble' ? [message.contents] : message.contents.type === 'carousel' ? message.contents.contents : null;
+      if (!Array.isArray(bubbles) || !bubbles.length || bubbles.length > 12 || bubbles.some(b => !b || b.type !== 'bubble' || (!b.body && !b.hero))) throw loadError('CARD_DATA', '名片卡片資料不完整。');
+      let nodes = 0;
+      function visit(value, depth) {
+        if (!value || typeof value !== 'object') return;
+        if (++nodes > 2000 || depth > 24) throw loadError('CARD_DATA', '名片內容過於複雜。');
+        if (value.action) {
+          let url;
+          try { url = new URL(value.action.uri); } catch {}
+          if (value.action.type !== 'uri' || !url || url.username || url.password || !['https:', 'http:', 'tel:', 'line:'].includes(url.protocol)) throw loadError('CARD_DATA', '名片包含無法分享的按鈕連結。');
         }
-
-
-const flexMessage = await loadShareCard();
-
-statusEl.innerText = "正在開啟通訊錄...";
-
-const shareResult = await liff.shareTargetPicker([flexMessage]);
-
-if (!shareResult || shareResult.status !== "success") {
-  showError(
-    "發送被取消",
-    "您可能關閉了通訊錄，或沒有按下最後的傳送。"
-  );
-  return;
-}
-
-statusEl.innerText = "分享流程已完成！";
-statusEl.style.color = "#28a745";
-
-setTimeout(() => {
-  if (liff.isInClient()) liff.closeWindow();
-}, 1200);
-
-      } catch (err) {
-        showError("發生錯誤", String(err && err.message ? err.message : err));
+        Object.values(value).forEach(child => visit(child, depth + 1));
+      }
+      visit(message.contents, 0);
+      return JSON.parse(JSON.stringify(message));
+    }
+    function readCardCache() {
+      try {
+        const raw = localStorage.getItem(CARD_CACHE_KEY);
+        if (!raw) return null;
+        if (raw.length > CARD_CACHE_MAX_LENGTH) throw new Error('Oversized cache');
+        const saved = JSON.parse(raw);
+        if (!saved || !cacheIsCurrent(saved.savedAt)) throw new Error('Expired cache');
+        return { message: validateMessage(saved.message), savedAt: saved.savedAt, fromCache: true };
+      } catch { clearCardCache(); return null; }
+    }
+    function writeCardCache(result) {
+      try {
+        // Store public card content only, never LINE tokens or the login callback URL.
+        const raw = JSON.stringify({ savedAt: result.savedAt, message: result.message });
+        if (raw.length > CARD_CACHE_MAX_LENGTH) { clearCardCache(); return; }
+        localStorage.setItem(CARD_CACHE_KEY, raw);
+      } catch { clearCardCache(); }
+    }
+    function applyCard(result) {
+      state.message = result.message;
+      state.savedAt = result.savedAt;
+      state.fromCache = !!result.fromCache;
+      state.dataError = '';
+      state.warning = state.fromCache ? '已使用此裝置暫存的名片，正在更新最新內容。' : '';
+      clearTimeout(expiryTimer);
+      expiryTimer = setTimeout(expireCard, Math.max(0, CARD_CACHE_MAX_AGE_MS - (Date.now() - state.savedAt)));
+    }
+    function expireCard() {
+      if (!state.message || cacheIsCurrent(state.savedAt) || state.sharing) return;
+      state.message = null;
+      state.warning = '';
+      state.notice = '名片快取已到期，請重新讀取。';
+      state.autoPending = false;
+      updateUi();
+    }
+    function acceptCard(result) {
+      // The selected message stays unchanged until the friend picker closes.
+      if (state.sharing) { state.pendingCard = result; return; }
+      if (result.message) applyCard(result);
+      else if (state.message && cacheIsCurrent(state.savedAt) && result.error.retryable) {
+        state.warning = '最新內容暫時無法更新，目前保留 24 小時內取得的名片，可再次分享或重新讀取。';
+      } else {
+        state.message = null;
+        clearCardCache();
+        state.warning = '';
+        state.dataError = errorText(result.error);
       }
     }
-
-    main();
+    function foregroundTimeout(promise, error, signal) {
+      return new Promise((resolve, reject) => {
+        let settled = false, timer = null, remaining = LINE_TIMEOUT_MS, since = 0;
+        function finish(error, value) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          signal.removeEventListener('abort', abort);
+          document.removeEventListener('visibilitychange', changed);
+          if (error) reject(error); else resolve(value);
+        }
+        function abort() { finish(new DOMException('Cancelled', 'AbortError')); }
+        function changed() {
+          if (settled) return;
+          if (document.hidden && timer !== null) {
+            remaining = Math.max(0, remaining - (performance.now() - since));
+            clearTimeout(timer); timer = null;
+          } else if (!document.hidden && timer === null) {
+            since = performance.now();
+            timer = setTimeout(() => { if (document.hidden) changed(); else finish(error); }, remaining);
+          }
+        }
+        promise.then(value => finish(null, value), finish);
+        if (signal.aborted) { abort(); return; }
+        signal.addEventListener('abort', abort, { once: true });
+        document.addEventListener('visibilitychange', changed);
+        changed();
+      });
+    }
+    function loadSdk() {
+      if (sdkPromise) return sdkPromise;
+      sdkPromise = new Promise((resolve, reject) => {
+        const script = $('line-sdk');
+        function finish() {
+          script.removeEventListener('error', failed);
+          document.removeEventListener('DOMContentLoaded', ready);
+        }
+        function failed() { finish(); reject(loadError('SDK_NETWORK', 'LINE 元件載入失敗，請重新開啟 LINE。')); }
+        function ready() {
+          if (!window.liff || typeof window.liff.init !== 'function') { failed(); return; }
+          finish(); resolve(window.liff);
+        }
+        script.addEventListener('error', failed, { once: true });
+        if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready, { once: true });
+        else ready();
+      });
+      return sdkPromise;
+    }
+    async function prepareLine(signal, onReady, onFailure) {
+      const sdk = await foregroundTimeout(loadSdk(), loadError('SDK_TIMEOUT', 'LINE 元件載入逾時，請重新開啟 LINE。'), signal);
+      if (signal.aborted) return;
+      lineSdk = sdk;
+      if (!linePromise) linePromise = Promise.resolve().then(() => sdk.init({ liffId: LIFF_ID }));
+      const initialized = linePromise.then(async () => {
+        if (signal.aborted) return;
+        if (!sdk.isLoggedIn()) {
+          if (sdk.isInClient()) throw loadError('LINE_LOGIN', 'LINE 尚未完成登入，請重新開啟 LINE 並完成授權。');
+          if (!loginStarted) { loginStarted = true; sdk.login({ redirectUri: window.location.href }); }
+          await foregroundTimeout(new Promise(() => {}), loadError('LINE_LOGIN_TIMEOUT', 'LINE 登入尚未完成，請重新開啟 LINE。'), signal);
+          return;
+        }
+        if (!sdk.isApiAvailable('shareTargetPicker')) throw loadError('LINE_UNAVAILABLE', '目前無法使用分享功能，請確認 LINE 版本及 shareTargetPicker 設定。');
+        onReady();
+      });
+      // A delayed initialization can recover without starting another SDK instance.
+      initialized.catch(onFailure);
+      await foregroundTimeout(linePromise, loadError('LINE_INIT_TIMEOUT', 'LINE 初始化逾時，請重新開啟 LINE；若仍無反應，請關閉頁面後再轉分享。'), signal);
+      await initialized;
+    }
+    function parseCardResponse(data) {
+      if (data && data.ok === false && data.code === 'CARD_SERVER') throw loadError('CARD_SERVER', 'Google 暫時無法讀取名片。', true);
+      if (!data || data.ok !== true) throw loadError('CARD_DATA', 'Google 未回傳有效名片，請確認工作表與部署設定。');
+      return validateMessage(data.flexMessage);
+    }
+    async function requestCard(signal, legacy) {
+      if (legacy) return requestJsonp(signal);
+      try {
+        const url = new URL(GAS_WEBAPP_URL);
+        url.searchParams.set('action', 'getShareCard');
+        const response = await fetch(url.href, {
+          method: 'POST', mode: 'cors', credentials: 'omit', redirect: 'follow', cache: 'no-store',
+          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+          body: JSON.stringify({ requestType: 'referral-share', action: 'getShareCard' }), signal
+        });
+        if (response.status === 401 || response.status === 403) throw loadError('CARD_RESPONSE', 'Google 拒絕讀取，請確認網頁部署的存取權限。');
+        if (!response.ok) throw loadError('CARD_NETWORK', 'Google 名片服務暫時無法連線。', true);
+        const text = await response.text();
+        if (text.trim() === 'OK') throw loadError('CARD_LEGACY', '改用相容方式讀取。', true);
+        let data;
+        try { data = JSON.parse(text); } catch { throw loadError('CARD_RESPONSE', 'Google 回應格式不正確，請確認部署網址與權限。'); }
+        return parseCardResponse(data);
+      } catch (error) {
+        if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
+        if (error && error.code) throw error;
+        throw loadError('CARD_NETWORK', 'Google 名片服務暫時無法連線。', true);
+      }
+    }
+    function requestJsonp(signal) {
+      return new Promise((resolve, reject) => {
+        const name = 'receiveFlex_' + Date.now() + '_' + (++callbackSequence);
+        const script = document.createElement('script');
+        let settled = false;
+        function finish(error, message) {
+          if (settled) return;
+          settled = true;
+          signal.removeEventListener('abort', abort);
+          script.onload = script.onerror = null;
+          script.remove();
+          if (error) {
+            window[name] = () => {};
+            setTimeout(() => { delete window[name]; }, LINE_TIMEOUT_MS);
+          } else delete window[name];
+          if (error) reject(error); else resolve(message);
+        }
+        function abort() { finish(new DOMException('Cancelled', 'AbortError')); }
+        if (signal.aborted) { abort(); return; }
+        window[name] = data => { try { finish(null, parseCardResponse(data)); } catch (error) { finish(error); } };
+        const url = new URL(GAS_WEBAPP_URL);
+        url.searchParams.set('action', 'getShareCard');
+        url.searchParams.set('prefix', name);
+        url.searchParams.set('v', String(Date.now()));
+        script.src = url.href;
+        script.async = true;
+        script.dataset.shareRequest = name;
+        script.onerror = () => finish(loadError('CARD_NETWORK', 'Google 名片服務暫時無法連線。', true));
+        script.onload = () => finish(loadError('CARD_RESPONSE', 'Google 未回傳名片，請確認部署網址與權限。'));
+        signal.addEventListener('abort', abort, { once: true });
+        document.head.appendChild(script);
+      });
+    }
+    function loadShareCard(signal, onRetry) {
+      return new Promise((resolve, reject) => {
+        const controller = new AbortController();
+        const startedAt = performance.now();
+        let settled = false, attempts = 0, pending = 0, fatal = null, deadlineTimer, retryTimer;
+        function finish(error, message) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(deadlineTimer); clearTimeout(retryTimer);
+          signal.removeEventListener('abort', abort);
+          controller.abort();
+          if (error) reject(error); else resolve(message);
+        }
+        function abort() { finish(new DOMException('Cancelled', 'AbortError')); }
+        function read() {
+          if (settled || fatal || attempts >= 3 || pending >= 2) return;
+          clearTimeout(retryTimer);
+          attempts++; pending++;
+          if (attempts > 1) onRetry(attempts);
+          requestCard(controller.signal, attempts > 1).then(message => finish(null, message), error => {
+            pending--;
+            if (settled) return;
+            if (!error.retryable) fatal = error;
+            if (pending) return;
+            if (fatal || attempts === 3) { finish(fatal || error); return; }
+            const delay = error.code === 'CARD_LEGACY' ? 0 : CARD_RETRY_DELAYS_MS[attempts - 1] + Math.floor(Math.random() * 500);
+            if (performance.now() - startedAt + delay < CARD_TOTAL_TIMEOUT_MS) retryTimer = setTimeout(read, delay);
+          });
+        }
+        if (signal.aborted) { abort(); return; }
+        signal.addEventListener('abort', abort, { once: true });
+        deadlineTimer = setTimeout(() => finish(fatal || loadError('CARD_TIMEOUT', '名片讀取超過 60 秒，請按「重新讀取名片」再試一次。', true)), CARD_TOTAL_TIMEOUT_MS);
+        read();
+        // A slow first request remains eligible; the first valid response wins.
+        retryTimer = setTimeout(read, CARD_RECOVERY_DELAY_MS);
+      });
+    }
+    function updateUi() {
+      const failed = state.lineError || state.dataError;
+      $('status').textContent = state.sharing ? '請選擇好友並確認傳送。' : failed ? '暫時無法完成載入' : state.notice || (state.lineLoading ? '正在連接 LINE…' : state.loading && !state.message ? '正在讀取名片…' : '名片已準備好');
+      $('status').classList.toggle('success', state.success);
+      $('error').hidden = !failed;
+      $('error').textContent = failed;
+      $('cacheNotice').hidden = !state.warning;
+      $('cacheNotice').textContent = state.warning;
+      $('share').hidden = !state.message;
+      $('share').disabled = !state.lineReady || !!failed || state.sharing || state.stopped;
+      $('reload').hidden = state.lineLoading || !!state.lineError;
+      $('reload').disabled = state.sharing || state.loading || state.stopped;
+      $('restart').hidden = !state.lineError;
+      $('restart').disabled = state.sharing;
+      $('close').hidden = !(lineSdk && lineSdk.isInClient()) || (!state.success && !failed);
+      $('close').disabled = state.sharing;
+    }
+    function maybeAutoShare() {
+      if (!state.autoPending || state.stopped || document.hidden || !state.lineReady || !state.message || state.lineError || state.dataError || state.sharing) return;
+      state.autoPending = false;
+      share();
+    }
+    function stopPendingLoads() {
+      state.generation++;
+      if (state.controller) state.controller.abort();
+      clearTimeout(expiryTimer); clearTimeout(closeTimer);
+    }
+    async function start(forceRefresh = false) {
+      if (state.sharing) return;
+      stopPendingLoads();
+      state.stopped = false;
+      const generation = state.generation;
+      state.controller = new AbortController();
+      const signal = state.controller.signal;
+      if (forceRefresh) { clearCardCache(); state.message = null; state.autoPending = false; }
+      if (state.message && !cacheIsCurrent(state.savedAt)) state.message = null;
+      state.lineLoading = true; state.lineReady = false; state.loading = false;
+      state.lineError = state.dataError = state.notice = state.warning = '';
+      state.pendingCard = null; state.success = false;
+      let started = false;
+      updateUi();
+      function failed(error) {
+        if (generation !== state.generation || signal.aborted || error.name === 'AbortError') return;
+        state.lineLoading = false;
+        state.lineError = errorText(error);
+        state.autoPending = false;
+        updateUi();
+      }
+      await prepareLine(signal, () => {
+        if (generation !== state.generation || signal.aborted || started) return;
+        started = true;
+        state.lineLoading = false; state.lineReady = true; state.lineError = '';
+        const cached = !forceRefresh && !state.message ? readCardCache() : null;
+        if (cached) applyCard(cached);
+        else if (state.message) applyCard({ message: state.message, savedAt: state.savedAt, fromCache: state.fromCache });
+        const background = !!state.message;
+        state.loading = true;
+        updateUi();
+        loadShareCard(signal, attempt => {
+          if (generation !== state.generation || state.message) return;
+          state.notice = '連線較慢，正在自動重試（' + attempt + '/3）…';
+          updateUi();
+        }).then(message => {
+          if (generation !== state.generation || signal.aborted) return;
+          const result = { message, savedAt: Date.now() };
+          writeCardCache(result);
+          acceptCard(result);
+        }).catch(error => {
+          if (generation === state.generation && !signal.aborted && error.name !== 'AbortError') acceptCard({ error });
+        }).finally(() => {
+          if (generation !== state.generation || signal.aborted) return;
+          state.loading = false;
+          if (!background && !state.sharing && !state.success) state.notice = '';
+          updateUi(); maybeAutoShare();
+        });
+        maybeAutoShare();
+      }, failed).catch(failed);
+    }
+    async function share() {
+      expireCard();
+      if (state.stopped || state.sharing || !state.message || !state.lineReady || state.lineError || state.dataError) return;
+      clearTimeout(closeTimer);
+      state.autoPending = false; state.sharing = true; state.success = false; state.notice = '';
+      const generation = state.generation;
+      const snapshot = state.message;
+      updateUi();
+      try {
+        if (!lineSdk.isLoggedIn() || !lineSdk.isApiAvailable('shareTargetPicker')) {
+          state.lineReady = false;
+          throw loadError('LINE_SESSION_EXPIRED', 'LINE 登入或分享狀態失效，請重新開啟 LINE。');
+        }
+        const result = await lineSdk.shareTargetPicker([snapshot]);
+        if (generation !== state.generation || state.stopped) return;
+        if (result && result.status === 'success') {
+          state.success = true;
+          state.notice = '分享流程已完成！';
+          if (lineSdk.isInClient()) closeTimer = setTimeout(closePage, 1200);
+        } else if (!result) state.notice = '已取消分享，名片已保留。';
+        else state.notice = '無法確認分享結果，請先查看聊天室，避免重複傳送。';
+      } catch (error) {
+        if (generation !== state.generation || state.stopped) return;
+        if (error.code === 'LINE_SESSION_EXPIRED') state.lineError = errorText(error);
+        else state.notice = '通訊錄未能完成分享。請先確認聊天室；若尚未送出，可按「再次分享」。';
+      } finally {
+        state.sharing = false;
+        if (generation === state.generation && !state.stopped) {
+          if (state.pendingCard) { const result = state.pendingCard; state.pendingCard = null; acceptCard(result); }
+          expireCard(); updateUi();
+        }
+      }
+    }
+    function closePage() {
+      clearTimeout(closeTimer);
+      try { if (lineSdk && lineSdk.isInClient()) lineSdk.closeWindow(); }
+      catch { state.notice = '分享結果已保留，請使用 LINE 右上角關閉頁面。'; updateUi(); }
+    }
+    $('share').addEventListener('click', share);
+    $('reload').addEventListener('click', () => start(true));
+    $('close').addEventListener('click', closePage);
+    $('restart').addEventListener('click', () => {
+      if (state.sharing) return;
+      stopPendingLoads(); state.stopped = true;
+      window.location.replace('https://liff.line.me/' + encodeURIComponent(LIFF_ID));
+    });
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) { expireCard(); maybeAutoShare(); } });
+    window.addEventListener('pagehide', () => { state.stopped = true; state.autoPending = false; stopPendingLoads(); });
+    window.addEventListener('pageshow', event => { if (event.persisted && !state.sharing) start(); });
+    start();
   </script>
 </body>
 </html>
